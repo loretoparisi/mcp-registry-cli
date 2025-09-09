@@ -1,0 +1,3 @@
+[console_scripts]
+mcp-registry = mcp_registry_cli.cli:main
+mcp-registry-cli = mcp_registry_cli.interactive_main:main
