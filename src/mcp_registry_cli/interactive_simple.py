@@ -18,7 +18,7 @@ class SimpleInteractiveCLI:
         self.search_query = ""
         self.status_filter = ""
         self.current_cursor = None
-        self.page_size = 15
+        self.page_size = 30
         self.running = True
         
     def clear_screen(self):

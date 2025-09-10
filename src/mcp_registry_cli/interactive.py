@@ -33,7 +33,10 @@ class InteractiveCLI:
         self.search_query = ""
         self.status_filter = ""
         self.current_cursor = None
-        self.page_size = 15
+        self.page_cursors = []  # Stack of cursors for previous pages
+        self.has_next_page = False
+        self.page_size = 30
+        self.current_page = 1
         self.running = True
         
     def clear_screen(self):
@@ -46,12 +49,17 @@ class InteractiveCLI:
         title_text.append("🚀 MCP Registry Interactive CLI", style="bold cyan")
         
         status_text = Text()
-        status_text.append(f"Servers: {len(self.current_servers)} | ", style="dim")
+        page_info = f"Page {self.current_page}"
+        if self.has_next_page:
+            page_info += "+ | "  # Indicates more pages available
+        else:
+            page_info += " | "  # This is likely the last page
+        status_text.append(f"{page_info}Servers: {len(self.current_servers)} | ", style="dim")
         if self.search_query:
             status_text.append(f"Search: '{self.search_query}' | ", style="yellow")
         if self.status_filter:
             status_text.append(f"Status: {self.status_filter} | ", style="green")
-        status_text.append("Press 'h' for help", style="dim")
+        status_text.append("← → Pages | ↑ ↓ Navigate | 'h' for help", style="dim")
         
         header_content = Text()
         header_content.append(title_text)
@@ -110,12 +118,12 @@ class InteractiveCLI:
         help_text = Text()
         help_text.append("Navigation:\n", style="bold")
         help_text.append("↑/↓ or k/j   - Navigate servers\n")
+        help_text.append("←/→ or p/n   - Previous/Next page\n", style="cyan")
         help_text.append("Enter        - View server details\n") 
         help_text.append("i            - Install selected server\n")
         help_text.append("s            - Search servers\n")
         help_text.append("f            - Filter by status\n")
         help_text.append("c            - Clear filters\n")
-        help_text.append("n            - Load next page\n")
         help_text.append("r            - Refresh server list\n")
         help_text.append("h            - Show/hide help\n")
         help_text.append("q            - Quit\n")
@@ -145,7 +153,7 @@ class InteractiveCLI:
         
         return layout
     
-    def load_servers(self, search: str = "", status: str = "", cursor: str = None):
+    def load_servers(self, search: str = "", status: str = "", cursor: str = None, reset_pagination: bool = True):
         """Load servers from API."""
         try:
             if search:
@@ -161,8 +169,13 @@ class InteractiveCLI:
             
             self.current_servers = servers
             self.current_cursor = result.get("next_cursor")
+            self.has_next_page = bool(self.current_cursor)
             self.selected_index = 0
             
+            if reset_pagination:
+                self.current_page = 1
+                self.page_cursors = []
+                
         except Exception as e:
             self.console.print(f"[red]Error loading servers: {e}[/red]")
             self.current_servers = []
@@ -247,6 +260,47 @@ class InteractiveCLI:
             
         self.load_servers(search=self.search_query, status=self.status_filter)
     
+    def next_page(self):
+        """Load next page of servers."""
+        if not self.has_next_page:
+            return
+        
+        # Store current cursor for going back
+        self.page_cursors.append(self.current_cursor)
+        self.current_page += 1
+        
+        self.load_servers(
+            search=self.search_query,
+            status=self.status_filter,
+            cursor=self.current_cursor,
+            reset_pagination=False
+        )
+    
+    def previous_page(self):
+        """Load previous page of servers."""
+        if self.current_page <= 1:
+            return
+        
+        self.current_page -= 1
+        
+        if self.current_page == 1:
+            # Go back to first page
+            cursor = None
+        else:
+            # Use stored cursor for previous page
+            cursor = self.page_cursors[-2] if len(self.page_cursors) > 1 else None
+        
+        # Remove the last cursor
+        if self.page_cursors:
+            self.page_cursors.pop()
+        
+        self.load_servers(
+            search=self.search_query,
+            status=self.status_filter,
+            cursor=cursor,
+            reset_pagination=False
+        )
+    
     def install_server(self, server: Server):
         """Interactive server installation."""
         if not server.packages:
@@ -326,6 +380,10 @@ class InteractiveCLI:
                         return 'k'  # Up arrow
                     elif key == b'P':
                         return 'j'  # Down arrow
+                    elif key == b'M':
+                        return '\x1b[C'  # Right arrow
+                    elif key == b'K':
+                        return '\x1b[D'  # Left arrow
                 return key.decode('utf-8').lower()
             else:
                 # Unix/Linux/macOS
@@ -352,9 +410,9 @@ class InteractiveCLI:
                                 elif ch3 == 'B':
                                     return 'j'  # Down arrow
                                 elif ch3 == 'C':
-                                    return 'l'  # Right arrow (unused)
+                                    return '\x1b[C'  # Right arrow
                                 elif ch3 == 'D':
-                                    return 'h'  # Left arrow (unused)
+                                    return '\x1b[D'  # Left arrow
                         
                         # Handle Ctrl+C
                         if ord(ch) == 3:
@@ -401,6 +459,8 @@ class InteractiveCLI:
                 'filter': 'f', 'f': 'f',
                 'clear': 'c', 'c': 'c',
                 'next': 'n', 'n': 'n', 'more': 'n',
+                'prev': 'p', 'p': 'p', 'previous': 'p',
+                'left': 'p', 'right': 'n',
                 'refresh': 'r', 'r': 'r', 'reload': 'r',
                 'help': 'h', 'h': 'h', '?': 'h',
                 'quit': 'q', 'q': 'q', 'exit': 'q'
@@ -430,9 +490,11 @@ class InteractiveCLI:
                     self.console.print("[yellow]No servers found. Press 'r' to refresh or 'q' to quit.[/yellow]")
                 
                 # Status bar
-                status_line = f"[dim]Selected: {self.selected_index + 1}/{len(self.current_servers)} | "
-                if self.current_cursor:
-                    status_line += "More available (press 'n') | "
+                status_line = f"[dim]Selected: {self.selected_index + 1}/{len(self.current_servers)} | Page {self.current_page} | "
+                if self.current_page > 1:
+                    status_line += "← Prev | "
+                if self.has_next_page:
+                    status_line += "Next → | "
                 status_line += "Press 'h' for help[/dim]"
                 self.console.print(status_line)
                 
@@ -446,6 +508,11 @@ class InteractiveCLI:
                 elif key in ['j', '\x1b[B']:  # Down arrow or j  
                     if self.selected_index < len(self.current_servers) - 1:
                         self.selected_index += 1
+                elif key in ['\x1b[D', 'p']:  # Left arrow or p (previous page)
+                    self.previous_page()
+                elif key in ['\x1b[C', 'n']:  # Right arrow or n (next page)
+                    if key == 'n' or self.has_next_page:
+                        self.next_page()
                 elif key in ['\r', '\n']:  # Enter
                     if self.current_servers:
                         server = self.current_servers[self.selected_index]
@@ -462,13 +529,7 @@ class InteractiveCLI:
                     self.search_query = ""
                     self.status_filter = ""
                     self.load_servers()
-                elif key == 'n':  # Next page
-                    if self.current_cursor:
-                        self.load_servers(
-                            search=self.search_query,
-                            status=self.status_filter,
-                            cursor=self.current_cursor
-                        )
+                # Note: 'n' and 'p' are now handled in navigation section above
                 elif key == 'r':  # Refresh
                     self.load_servers(search=self.search_query, status=self.status_filter)
                 elif key == 'h':  # Help

@@ -4,13 +4,14 @@ A command-line interface for navigating and managing servers from the Model Cont
 
 ## Features
 
-- 🔍 Browse MCP servers with pagination and search
-- 📊 Filter and sort servers by status, name, description
-- 📋 View detailed server information including packages and repositories
-- 📦 Install servers via CLI with npm/pip support
-- 🎨 Rich terminal output with colors and tables
-- ⌨️  **Interactive CLI mode** with keyboard navigation
-- 🔗 Direct access to MCP Registry API
+- 🔍 **Browse MCP servers** with intelligent pagination (30 servers per page)
+- 📊 **Filter and sort** servers by status, name, description
+- 📋 **View detailed information** including packages and repositories
+- 📦 **Install servers** via CLI with npm/pip support
+- 🎨 **Rich terminal UI** with colors, tables, and beautiful formatting
+- ⌨️  **Interactive navigation** with full keyboard support
+- 🚀 **Smart pagination** with left/right arrow keys and p/n shortcuts
+- 🔗 **Direct API access** to MCP Registry
 
 ## Installation
 
@@ -66,13 +67,22 @@ mcp-registry interactive
 ```
 
 **Interactive Controls:**
-- `↑/↓` or `k/j` - Navigate servers
-- `Enter` - View server details  
-- `i` - Install server
-- `s` - Search servers
-- `f` - Filter by status
-- `h` - Help panel
-- `q` - Quit
+- `↑/↓` or `k/j` - Navigate servers within current page
+- `←/→` or `p/n` - Navigate between pages (30 servers per page)
+- `Enter` - View detailed server information
+- `i` - Install selected server
+- `s` - Search servers by name or description
+- `f` - Filter servers by status (active, inactive, deprecated)
+- `c` - Clear all filters and search
+- `r` - Refresh server list
+- `h` - Show/hide help panel
+- `q` - Quit application
+
+**Pagination Features:**
+- **Smart page navigation**: 30 servers per page with intuitive controls
+- **Page indicators**: Shows current page with "+" when more pages available (e.g., "Page 2+")
+- **Cross-platform**: Arrow keys work on Windows, macOS, and Linux
+- **Fallback support**: Works in any terminal, with or without Rich library
 
 ### Command Line Mode
 ```bash
@@ -134,8 +144,8 @@ mcp-registry list --status active
 # Find database-related servers
 mcp-registry list --search database --limit 5
 
-# Browse with pagination
-mcp-registry list --limit 10
+# Browse with pagination (30 servers per page)
+mcp-registry list --limit 30
 # Use the cursor from output for next page
 mcp-registry list --cursor <next-cursor>
 ```
