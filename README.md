@@ -1,5 +1,9 @@
 # MCP Registry CLI
 
+[![PyPI version](https://badge.fury.io/py/mcp-registry-cli.svg)](https://pypi.org/project/mcp-registry-cli/)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A command-line interface for navigating and managing servers from the Model Context Protocol (MCP) registry.
 
 ## Features
@@ -15,6 +19,8 @@ A command-line interface for navigating and managing servers from the Model Cont
 
 ## Installation
 
+📦 **Available on PyPI**: https://pypi.org/project/mcp-registry-cli/
+
 ### Prerequisites
 - Python 3.8 or higher
 - pip package manager
@@ -26,13 +32,14 @@ A command-line interface for navigating and managing servers from the Model Cont
 python3 -m venv mcp-registry-env
 source mcp-registry-env/bin/activate  # On Windows: mcp-registry-env\Scripts\activate
 
-# Install the package
+# Install from PyPI
 pip install mcp-registry-cli
 ```
 
 ### System-wide Installation
 
 ```bash
+# Install directly from PyPI
 pip install mcp-registry-cli
 ```
 
