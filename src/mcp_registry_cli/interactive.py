@@ -160,22 +160,44 @@ class InteractiveCLI:
                 result = self.api.search_servers(search, cursor=cursor, limit=self.page_size)
             else:
                 result = self.api.list_servers(cursor=cursor, limit=self.page_size)
-                
+
             servers = result["servers"]
-            
+
+            # Filter to show only latest version of each server
+            seen_servers = {}
+            filtered_servers = []
+            for server in servers:
+                # Check if this is the latest version
+                is_latest = False
+                if server.meta and "io.modelcontextprotocol.registry/official" in server.meta:
+                    is_latest = server.meta["io.modelcontextprotocol.registry/official"].get("isLatest", False)
+
+                # Only include if it's the latest version or if we haven't seen this server yet
+                if is_latest or server.name not in seen_servers:
+                    if server.name not in seen_servers or is_latest:
+                        seen_servers[server.name] = server
+                        if is_latest:
+                            # Replace with latest version if we already added a non-latest one
+                            filtered_servers = [s for s in filtered_servers if s.name != server.name]
+                            filtered_servers.append(server)
+                        else:
+                            filtered_servers.append(server)
+
+            servers = filtered_servers
+
             # Apply status filter if set
             if status:
                 servers = [s for s in servers if s.status.lower() == status.lower()]
-            
+
             self.current_servers = servers
             self.current_cursor = result.get("next_cursor")
             self.has_next_page = bool(self.current_cursor)
             self.selected_index = 0
-            
+
             if reset_pagination:
                 self.current_page = 1
                 self.page_cursors = []
-                
+
         except Exception as e:
             self.console.print(f"[red]Error loading servers: {e}[/red]")
             self.current_servers = []
@@ -183,26 +205,26 @@ class InteractiveCLI:
     def show_server_details(self, server: Server):
         """Show detailed server information."""
         self.clear_screen()
-        
+
         # Main info panel
         info_text = Text()
         info_text.append(f"Name: {server.name}\n", style="bold cyan")
         info_text.append(f"Status: ", style="bold")
-        
+
         status_style = {
             "active": "green",
             "inactive": "red",
             "deprecated": "yellow"
         }.get(server.status.lower(), "white")
         info_text.append(f"{server.status}\n", style=status_style)
-        
+
         if server.version:
             info_text.append(f"Version: {server.version}\n", style="bold")
-        
+
         info_text.append(f"\nDescription:\n{server.description}", style="white")
-        
+
         self.console.print(Panel(info_text, title="Server Information", border_style="blue"))
-        
+
         # Repository info
         if server.repository:
             repo_text = Text()
@@ -210,31 +232,72 @@ class InteractiveCLI:
             repo_text.append(f"URL: {server.repository.get('url', 'N/A')}\n", style="cyan")
             if server.repository.get('ref'):
                 repo_text.append(f"Ref: {server.repository.get('ref')}\n", style="cyan")
-            
+
             self.console.print(Panel(repo_text, title="Repository", border_style="green"))
-        
+
+        # Fetch and display all available versions
+        try:
+            self.console.print("[dim]Fetching available versions...[/dim]")
+            all_versions = self.api.get_server_versions(server.name)
+
+            if all_versions and len(all_versions) > 1:
+                versions_table = Table(show_header=True, header_style="bold magenta")
+                versions_table.add_column("#", style="cyan", width=5)
+                versions_table.add_column("Version", style="yellow")
+                versions_table.add_column("Status", style="green", justify="center")
+                versions_table.add_column("Published", style="dim")
+                versions_table.add_column("Latest", style="cyan", justify="center")
+
+                for idx, ver in enumerate(all_versions, 1):
+                    is_latest = ver.meta.get("io.modelcontextprotocol.registry/official", {}).get("isLatest", False) if ver.meta else False
+                    published = ver.meta.get("io.modelcontextprotocol.registry/official", {}).get("publishedAt", "N/A") if ver.meta else "N/A"
+                    if published != "N/A":
+                        # Format date to be more readable
+                        try:
+                            from datetime import datetime
+                            dt = datetime.fromisoformat(published.replace('Z', '+00:00'))
+                            published = dt.strftime("%Y-%m-%d %H:%M")
+                        except:
+                            pass
+
+                    versions_table.add_row(
+                        str(idx),
+                        ver.version or "N/A",
+                        ver.status,
+                        published,
+                        "✓" if is_latest else ""
+                    )
+
+                self.console.print(Panel(versions_table, title=f"Available Versions ({len(all_versions)})", border_style="cyan"))
+        except Exception as e:
+            self.console.print(f"[yellow]Could not fetch versions: {e}[/yellow]")
+
         # Packages info
         if server.packages:
             packages_table = Table(show_header=True, header_style="bold magenta")
             packages_table.add_column("Registry", style="cyan")
             packages_table.add_column("Package", style="yellow")
             packages_table.add_column("Version", style="green")
-            
+
             for package in server.packages:
                 packages_table.add_row(
                     package.get("registry", "N/A"),
                     package.get("package", "N/A"),
                     package.get("version", "N/A")
                 )
-            
+
             self.console.print(Panel(packages_table, title="Installation Packages", border_style="cyan"))
-        
+
         # Controls
-        self.console.print("\n[dim]Press any key to return to server list...[/dim]")
-        
+        self.console.print("\n[dim]Options: [bold]i[/bold] = Install | [bold]v[/bold] = Install specific version | [bold]any other key[/bold] = Return[/dim]")
+
         # Wait for key press
         try:
-            input()
+            key = input().lower().strip()
+            if key == 'i':
+                self.install_server(server)
+            elif key == 'v':
+                self.install_server_version(server)
         except KeyboardInterrupt:
             pass
     
@@ -307,22 +370,22 @@ class InteractiveCLI:
             self.console.print(f"[red]No installation packages available for {server.name}[/red]")
             input("Press any key to continue...")
             return
-        
+
         self.console.print(f"[cyan]Installing {server.name}...[/cyan]")
-        
+
         # Show available packages
         packages_table = Table(show_header=True, header_style="bold magenta")
         packages_table.add_column("Option", style="cyan")
-        packages_table.add_column("Registry", style="yellow") 
+        packages_table.add_column("Registry", style="yellow")
         packages_table.add_column("Package", style="green")
         packages_table.add_column("Command", style="dim")
-        
+
         install_options = []
         for i, package in enumerate(server.packages):
             registry = package.get("registry", "")
             package_name = package.get("package", "")
             version = package.get("version", "")
-            
+
             if registry == "npm":
                 cmd = f"npm install {package_name}"
                 if version:
@@ -333,12 +396,12 @@ class InteractiveCLI:
                     cmd += f"=={version}"
             else:
                 cmd = f"# Unknown registry: {registry}"
-            
+
             install_options.append(cmd)
             packages_table.add_row(str(i + 1), registry, package_name, cmd)
-        
+
         self.console.print(packages_table)
-        
+
         # Get user choice
         if len(install_options) == 1:
             choice = "1"
@@ -347,25 +410,76 @@ class InteractiveCLI:
                 f"Choose package to install (1-{len(install_options)})",
                 choices=[str(i) for i in range(1, len(install_options) + 1)]
             )
-        
+
         selected_cmd = install_options[int(choice) - 1]
-        
+
         # Confirm installation
         if Confirm.ask(f"Execute: [bold]{selected_cmd}[/bold]?"):
             try:
                 import subprocess
                 self.console.print(f"[cyan]Executing: {selected_cmd}[/cyan]")
-                
+
                 result = subprocess.run(selected_cmd.split(), capture_output=True, text=True)
                 if result.returncode == 0:
                     self.console.print(f"[green]✓ Successfully installed {server.name}[/green]")
                 else:
                     self.console.print(f"[red]✗ Installation failed: {result.stderr}[/red]")
-                    
+
             except Exception as e:
                 self.console.print(f"[red]✗ Installation error: {str(e)}[/red]")
-        
+
         input("Press any key to continue...")
+
+    def install_server_version(self, server: Server):
+        """Install a specific version of a server."""
+        try:
+            # Fetch all versions
+            all_versions = self.api.get_server_versions(server.name)
+
+            if not all_versions:
+                self.console.print(f"[red]No versions available for {server.name}[/red]")
+                input("Press any key to continue...")
+                return
+
+            # Display versions
+            versions_table = Table(show_header=True, header_style="bold magenta")
+            versions_table.add_column("Option", style="cyan", width=8)
+            versions_table.add_column("Version", style="yellow")
+            versions_table.add_column("Status", style="green", justify="center")
+            versions_table.add_column("Latest", style="cyan", justify="center")
+
+            for idx, ver in enumerate(all_versions, 1):
+                is_latest = ver.meta.get("io.modelcontextprotocol.registry/official", {}).get("isLatest", False) if ver.meta else False
+                versions_table.add_row(
+                    str(idx),
+                    ver.version or "N/A",
+                    ver.status,
+                    "✓" if is_latest else ""
+                )
+
+            self.console.print(versions_table)
+
+            # Get version choice
+            version_choice = Prompt.ask(
+                f"Select version to install (1-{len(all_versions)})",
+                choices=[str(i) for i in range(1, len(all_versions) + 1)],
+                default="1"
+            )
+
+            selected_version = all_versions[int(version_choice) - 1]
+
+            # Check if selected version has packages
+            if not selected_version.packages:
+                self.console.print(f"[red]No installation packages available for version {selected_version.version}[/red]")
+                input("Press any key to continue...")
+                return
+
+            # Install the selected version
+            self.install_server(selected_version)
+
+        except Exception as e:
+            self.console.print(f"[red]Error: {e}[/red]")
+            input("Press any key to continue...")
     
     def get_key_input(self) -> str:
         """Get single key input (cross-platform) with better fallback."""

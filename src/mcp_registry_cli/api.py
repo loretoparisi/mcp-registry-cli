@@ -106,19 +106,39 @@ class MCPRegistryAPI:
     def get_server_details(self, server_id: str) -> Server:
         """
         Get detailed information about a specific server.
-        
+
         Args:
             server_id: The server identifier
-            
+
         Returns:
             Server object with detailed information
         """
         url = f"{self.BASE_URL}/v0/servers/{server_id}"
         response = self.session.get(url)
         response.raise_for_status()
-        
+
         data = response.json()
         return Server.from_dict(data)
+
+    def get_server_versions(self, server_id: str) -> List[Server]:
+        """
+        Get all versions of a specific server.
+
+        Args:
+            server_id: The server identifier
+
+        Returns:
+            List of Server objects, one for each version
+        """
+        from urllib.parse import quote
+        encoded_server_id = quote(server_id, safe='')
+        url = f"{self.BASE_URL}/v0/servers/{encoded_server_id}/versions"
+        response = self.session.get(url)
+        response.raise_for_status()
+
+        data = response.json()
+        servers = [Server.from_dict(server_data) for server_data in data.get("servers", [])]
+        return servers
     
     def search_servers(self, query: str, cursor: Optional[str] = None, limit: int = 30) -> Dict[str, Any]:
         """
