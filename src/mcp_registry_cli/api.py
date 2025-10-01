@@ -20,8 +20,19 @@ class Server:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Server":
         """Create Server instance from API response data."""
+        # Handle new API format where data is nested under "server" key
+        server_data = data.get("server", data)
+        meta_data = data.get("_meta", {})
+
+        # Extract status from nested _meta structure
+        status = "unknown"
+        if "_meta" in data and "io.modelcontextprotocol.registry/official" in data["_meta"]:
+            status = data["_meta"]["io.modelcontextprotocol.registry/official"].get("status", "unknown")
+        elif "status" in server_data:
+            status = server_data.get("status", "unknown")
+
         # Normalize packages to have consistent field names
-        packages = data.get("packages", [])
+        packages = server_data.get("packages", [])
         if packages:
             normalized_packages = []
             for pkg in packages:
@@ -29,21 +40,21 @@ class Server:
                 # Map registry_type to registry for backward compatibility
                 if "registry_type" in normalized_pkg and "registry" not in normalized_pkg:
                     normalized_pkg["registry"] = normalized_pkg["registry_type"]
-                # Map identifier to package for backward compatibility  
+                # Map identifier to package for backward compatibility
                 if "identifier" in normalized_pkg and "package" not in normalized_pkg:
                     normalized_pkg["package"] = normalized_pkg["identifier"]
                 normalized_packages.append(normalized_pkg)
             packages = normalized_packages
-        
+
         return cls(
-            name=data.get("name", ""),
-            description=data.get("description", ""),
-            status=data.get("status", ""),
-            version=data.get("version"),
-            repository=data.get("repository"),
-            remotes=data.get("remotes"),
+            name=server_data.get("name", ""),
+            description=server_data.get("description", ""),
+            status=status,
+            version=server_data.get("version"),
+            repository=server_data.get("repository"),
+            remotes=server_data.get("remotes"),
             packages=packages,
-            meta=data.get("_meta")
+            meta=meta_data
         )
 
 
@@ -79,16 +90,16 @@ class MCPRegistryAPI:
         response.raise_for_status()
         
         data = response.json()
-        
+
         # Convert server data to Server objects
         servers = [Server.from_dict(server_data) for server_data in data.get("servers", [])]
-        
+
         # Extract metadata
         metadata = data.get("metadata", {})
-        
+
         return {
             "servers": servers,
-            "next_cursor": metadata.get("next_cursor"),
+            "next_cursor": metadata.get("nextCursor") or metadata.get("next_cursor"),
             "count": metadata.get("count", len(servers))
         }
     
