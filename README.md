@@ -78,12 +78,21 @@ mcp-registry interactive
 - `←/→` or `p/n` - Navigate between pages (30 servers per page)
 - `Enter` - View detailed server information
 - `i` - Install selected server
-- `s` - Search servers by name or description
+- `/` - **Live filter** - Type to filter current page in real-time
+- `Esc` - Exit live filter mode
+- `s` - Search servers by name or description (API search)
 - `f` - Filter servers by status (active, inactive, deprecated)
 - `c` - Clear all filters and search
 - `r` - Refresh server list
 - `h` - Show/hide help panel
 - `q` - Quit application
+
+**Live Filter Feature:**
+- **Real-time filtering**: Press `/` to filter servers as you type
+- **Instant results**: No API calls - filters current page immediately
+- **Smart matching**: Searches both server names and descriptions
+- **Easy editing**: Use Backspace to refine, Enter to accept, Esc to cancel
+- **Visual feedback**: Filter text shown in header with live result count
 
 **Pagination Features:**
 - **Smart page navigation**: 30 servers per page with intuitive controls

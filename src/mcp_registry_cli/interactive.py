@@ -29,8 +29,10 @@ class InteractiveCLI:
         self.console = Console()
         self.api = MCPRegistryAPI()
         self.current_servers: List[Server] = []
+        self.all_servers: List[Server] = []  # Unfiltered list for live search
         self.selected_index = 0
         self.search_query = ""
+        self.live_filter = ""  # Real-time filter text
         self.status_filter = ""
         self.current_cursor = None
         self.page_cursors = []  # Stack of cursors for previous pages
@@ -38,6 +40,7 @@ class InteractiveCLI:
         self.page_size = 30
         self.current_page = 1
         self.running = True
+        self.search_mode = False  # Flag for live search mode
         
     def clear_screen(self):
         """Clear the terminal screen."""
@@ -47,7 +50,7 @@ class InteractiveCLI:
         """Create the header panel."""
         title_text = Text()
         title_text.append("🚀 MCP Registry Interactive CLI", style="bold cyan")
-        
+
         status_text = Text()
         page_info = f"Page {self.current_page}"
         if self.has_next_page:
@@ -57,15 +60,17 @@ class InteractiveCLI:
         status_text.append(f"{page_info}Servers: {len(self.current_servers)} | ", style="dim")
         if self.search_query:
             status_text.append(f"Search: '{self.search_query}' | ", style="yellow")
+        if self.live_filter:
+            status_text.append(f"Filter: '{self.live_filter}' | ", style="cyan")
         if self.status_filter:
             status_text.append(f"Status: {self.status_filter} | ", style="green")
-        status_text.append("← → Pages | ↑ ↓ Navigate | 'h' for help", style="dim")
-        
+        status_text.append("← → Pages | ↑ ↓ Navigate | '/' to filter | 'h' for help", style="dim")
+
         header_content = Text()
         header_content.append(title_text)
         header_content.append("\n")
         header_content.append(status_text)
-        
+
         return Panel(header_content, title="MCP Registry", border_style="blue")
     
     def create_server_table(self) -> Table:
@@ -119,15 +124,17 @@ class InteractiveCLI:
         help_text.append("Navigation:\n", style="bold")
         help_text.append("↑/↓ or k/j   - Navigate servers\n")
         help_text.append("←/→ or p/n   - Previous/Next page\n", style="cyan")
-        help_text.append("Enter        - View server details\n") 
+        help_text.append("Enter        - View server details\n")
         help_text.append("i            - Install selected server\n")
-        help_text.append("s            - Search servers\n")
+        help_text.append("/            - Live filter (type to filter current page)\n", style="yellow")
+        help_text.append("Esc          - Exit live filter mode\n")
+        help_text.append("s            - Search servers (API search)\n")
         help_text.append("f            - Filter by status\n")
         help_text.append("c            - Clear filters\n")
         help_text.append("r            - Refresh server list\n")
         help_text.append("h            - Show/hide help\n")
         help_text.append("q            - Quit\n")
-        
+
         return Panel(help_text, title="Help", border_style="green")
     
     def create_layout(self, show_help: bool = False) -> Layout:
@@ -189,7 +196,10 @@ class InteractiveCLI:
             if status:
                 servers = [s for s in servers if s.status.lower() == status.lower()]
 
-            self.current_servers = servers
+            # Store both full list and filtered list
+            self.all_servers = servers
+            self.apply_live_filter()
+
             self.current_cursor = result.get("next_cursor")
             self.has_next_page = bool(self.current_cursor)
             self.selected_index = 0
@@ -201,6 +211,18 @@ class InteractiveCLI:
         except Exception as e:
             self.console.print(f"[red]Error loading servers: {e}[/red]")
             self.current_servers = []
+            self.all_servers = []
+
+    def apply_live_filter(self):
+        """Apply live filter to current servers list."""
+        if not self.live_filter:
+            self.current_servers = self.all_servers
+        else:
+            filter_lower = self.live_filter.lower()
+            self.current_servers = [
+                s for s in self.all_servers
+                if filter_lower in s.name.lower() or filter_lower in s.description.lower()
+            ]
     
     def show_server_details(self, server: Server):
         """Show detailed server information."""
@@ -301,6 +323,82 @@ class InteractiveCLI:
         except KeyboardInterrupt:
             pass
     
+    def live_search_mode(self):
+        """Enter live search mode where user can type to filter current page."""
+        import sys
+        import tty
+        import termios
+
+        # Store original terminal settings
+        try:
+            fd = sys.stdin.fileno()
+            if not os.isatty(fd):
+                # Fallback for non-tty environments
+                self.search_servers()
+                return
+
+            old_settings = termios.tcgetattr(fd)
+        except:
+            # Fallback if terminal control is not available
+            self.search_servers()
+            return
+
+        self.live_filter = ""
+        searching = True
+
+        try:
+            while searching:
+                # Redraw screen with current filter
+                self.clear_screen()
+                self.apply_live_filter()
+                if self.selected_index >= len(self.current_servers):
+                    self.selected_index = max(0, len(self.current_servers) - 1)
+
+                layout = self.create_layout(False)
+                self.console.print(layout)
+
+                # Show search input line
+                self.console.print(f"\n[bold cyan]Live Filter:[/bold cyan] {self.live_filter}_ [dim](Esc to exit, Backspace to delete)[/dim]")
+
+                # Get character input
+                tty.setraw(fd, termios.TCSANOW)
+                try:
+                    ch = sys.stdin.read(1)
+
+                    # Handle special keys
+                    if ch == '\x1b':  # ESC or arrow key
+                        # Check if it's an escape sequence
+                        ch2 = sys.stdin.read(1)
+                        if ch2 == '[':
+                            ch3 = sys.stdin.read(1)
+                            # Ignore arrow keys in search mode
+                            continue
+                        else:
+                            # ESC key pressed - exit search mode
+                            searching = False
+                            break
+                    elif ch == '\x7f' or ch == '\x08':  # Backspace or Delete
+                        if len(self.live_filter) > 0:
+                            self.live_filter = self.live_filter[:-1]
+                    elif ch == '\r' or ch == '\n':  # Enter
+                        # Exit search mode and keep the filter
+                        searching = False
+                    elif ord(ch) == 3:  # Ctrl+C
+                        raise KeyboardInterrupt
+                    elif ch.isprintable():
+                        # Add character to filter
+                        self.live_filter += ch
+                finally:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+                time.sleep(0.05)  # Small delay to prevent excessive CPU usage
+
+        except KeyboardInterrupt:
+            self.live_filter = ""
+            self.apply_live_filter()
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
     def search_servers(self):
         """Interactive search."""
         query = Prompt.ask("🔍 Enter search term", default=self.search_query)
@@ -639,9 +737,12 @@ class InteractiveCLI:
                     self.search_servers()
                 elif key == 'f':  # Filter
                     self.filter_by_status()
+                elif key == '/':  # Live filter mode
+                    self.live_search_mode()
                 elif key == 'c':  # Clear filters
                     self.search_query = ""
                     self.status_filter = ""
+                    self.live_filter = ""
                     self.load_servers()
                 # Note: 'n' and 'p' are now handled in navigation section above
                 elif key == 'r':  # Refresh
